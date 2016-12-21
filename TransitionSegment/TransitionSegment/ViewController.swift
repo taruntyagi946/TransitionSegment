@@ -36,7 +36,7 @@ class ViewController: UIViewController{
     //配置segment
     func configSegment() {
         
-        let titles:[String] = ["推荐","专题","真相","两性","不孕不育","一图读懂","肿瘤","慢病","营养","母婴"]
+        let titles:[String] = ["One","Two","Three","Four","Five","Six","Seven","Eight","Nine","Ten"]
         
         let rect = CGRect(x:0,y:64,width:screenWidth,height:35)
         

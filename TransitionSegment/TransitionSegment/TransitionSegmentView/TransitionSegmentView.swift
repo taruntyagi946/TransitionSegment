@@ -12,6 +12,9 @@ let widthAddition:CGFloat = 20.0
 let heightAddtion:CGFloat = 16.0
 let cornerRadius:CGFloat = 6.0
 
+let maxScrollSize: Int = 10_000_000
+let initialOffset: Int = 5_000_000
+
 let tagAddition = 100
 
 struct SegmentConfigure {
@@ -24,7 +27,7 @@ struct SegmentConfigure {
 }
 
 
-class TransitionSegmentView: UIView {
+class TransitionSegmentView: UIView,UIScrollViewDelegate {
 
 
     var configure: SegmentConfigure!{
@@ -54,11 +57,26 @@ class TransitionSegmentView: UIView {
     //顶部scrollView容器
     private var topContainer:UIScrollView?
     
+    private var lastContentOffset: CGPoint = CGPoint.zero
+    private var leftBoundary: Int = 0
+    private var rightBoundary: Int = 0
+    private var totalWidthForAllTabs: Int = 0
+    private var leftmostLabel: UILabel?
+    private var rightmostLabel: UILabel?
+    private var tabLabels: [UILabel]?
+    
+    public var currentTabIndex: Int
+    
+    
     
     
     init(frame: CGRect,configure:SegmentConfigure) {
         
+        currentTabIndex = 0
+        tabLabels = []
+        
         super.init(frame:frame)
+        
         
         self.configure = configure
         
@@ -114,13 +132,30 @@ class TransitionSegmentView: UIView {
         self.createBottomLabels(scrollView: topContainer!, titleArray: configure.titles,isHighlight:true)
         
         
+        // Allow infinite scrolling
+        bottomContainer!.delegate = self
+        bottomContainer?.decelerationRate = UIScrollViewDecelerationRateFast
         
+        let contentSize = CGSize(width: CGFloat(maxScrollSize), height: frame.height)
+        bottomContainer!.contentSize = contentSize
+        
+        let contentOffset = CGPoint(x:initialOffset, y:0)
+        bottomContainer!.setContentOffset(contentOffset, animated: false)
+        
+        topContainer?.isScrollEnabled = false
+        
+        totalWidthForAllTabs = rightBoundary-leftBoundary
     }
-    
+
     //对scrollview容器进行设置
     func createBottomLabels(scrollView:UIScrollView,titleArray:[String],isHighlight:Bool) {
         
-        var firstX:CGFloat = 0
+        var firstX:Int = 0
+        if (scrollView.isEqual(bottomContainer)) {
+            firstX = initialOffset
+            leftBoundary = firstX
+        }
+        
         scrollView.showsHorizontalScrollIndicator = false
         
         for index in 0..<titleArray.count{
@@ -129,10 +164,10 @@ class TransitionSegmentView: UIView {
             
             let dict = [NSFontAttributeName:UIFont.systemFont(ofSize: textFont)]
             //富文本自己算label宽度和高度
-            let itemWidth = title.size(attributes: dict).width + widthAddition
+            let itemWidth = Int(title.size(attributes: dict).width + widthAddition)
             
             let label = UILabel.init()
-            label.frame = CGRect(x:firstX,y:0,width:itemWidth,height:self.frame.height)
+            label.frame = CGRect(x:CGFloat(firstX),y:0,width:CGFloat(itemWidth),height:self.frame.height)
             label.text = title as String
             label.textAlignment = NSTextAlignment.center
             
@@ -161,8 +196,22 @@ class TransitionSegmentView: UIView {
             
             firstX += itemWidth
             scrollView.contentSize = CGSize(width:firstX,height:0)
-            scrollView.addSubview(label)
             
+            if (scrollView.isEqual(bottomContainer)) {
+                
+                tabLabels?.append(label)
+                
+                if (0 == index) {
+                    leftmostLabel = label
+                }
+                else if (titleArray.count-1 == index) {
+                    rightmostLabel = label
+                }
+                
+                rightBoundary = Int(label.frame.maxX)
+            }
+            
+            scrollView.addSubview(label)
         }
     }
     
@@ -177,9 +226,9 @@ class TransitionSegmentView: UIView {
     func tap(sender:UITapGestureRecognizer) {
         
         let item:UILabel = sender.view as! UILabel
-        let index = item.tag
+        currentTabIndex = item.tag-tagAddition
         
-        self.scrollClosure!(Int(index-100))
+        self.scrollClosure!(currentTabIndex)
         
     }
     
@@ -195,9 +244,9 @@ class TransitionSegmentView: UIView {
                 
                 
                 // 判断bottomContainer 是否需要移动
-                var offsetx = view.center.x - screenWidth/2
+                var offsetx = Int(view.center.x - screenWidth/2)
                 
-                let offsetMax = (bottomContainer?.contentSize.width)! - screenWidth
+                let offsetMax = maxScrollSize
                 
                 if offsetx < 0 {
                     offsetx = 0
@@ -211,21 +260,17 @@ class TransitionSegmentView: UIView {
                 
                 //调整高亮区域的frame
                 highlightView?.frame = view.frame
-                highlightView?.x = view.x + view.frame.width*remainder
+                highlightView?.x = CGFloat(Int(view.x + view.frame.width*remainder))
                 
                 //获取下一个label的宽度
                 let nextView = bottomContainer?.subviews[index+1]
-                highlightView?.width = (nextView?.width)!*remainder + view.width * (1-remainder)
+                highlightView?.width = CGFloat(Int((nextView?.width)!*remainder + view.width * (1-remainder)))
                 
                 
                 //裁剪高亮区域
                 self.clipView(view: highlightView!)
                 
-                let topPoint = CGPoint(x:((highlightView?.frame.minX)!), y:0)
-                
-                //移动topContainer
-                topContainer?.setContentOffset(topPoint, animated: false)
-                
+                self.adjustTopContainerOffsetAccordingToHighlightView()
             }
         }
     }
@@ -238,19 +283,17 @@ class TransitionSegmentView: UIView {
         
         for view in (bottomContainer?.subviews)! {
             
-            if index == (view.tag - 100) {
+            if index == (view.tag - tagAddition) {
                 
                 //调整高亮区域的frame
                 highlightView?.frame = view.frame
-                
-                //移动topContainer
-                topContainer?.contentOffset = CGPoint(x:((highlightView?.frame.minX)!), y:0)
+                self.adjustTopContainerOffsetAccordingToHighlightView()
                 
                 
                 // 判断bottomContainer 是否需要移动
-                var offsetx = view.centerX - screenWidth/2
+                var offsetx = Int(view.centerX - screenWidth/2)
                 
-                let offsetMax = (bottomContainer?.contentSize.width)! - screenWidth
+                let offsetMax = maxScrollSize
                 
                 if offsetx < 0 {
                     offsetx = 0
@@ -282,5 +325,114 @@ class TransitionSegmentView: UIView {
 
     
     
-
+    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        
+        let contentOffset = scrollView.contentOffset
+        
+        if (contentOffset.x < 0) {
+            return
+        }
+        
+        var isMovingRightToLeft = false
+        if (contentOffset.x > lastContentOffset.x) {
+            isMovingRightToLeft = true
+        }
+        lastContentOffset = contentOffset
+        
+        
+        self.relocateUIComponentsOf(bottomContainer!, isMovingRightToLeft: isMovingRightToLeft)
+    }
+    
+    
+    private func relocateUIComponentsOf(_ container:UIScrollView, isMovingRightToLeft:Bool) {
+        
+        guard totalWidthForAllTabs > 0 else {
+            return
+        }
+        
+        let contentOffset = container.contentOffset
+        
+        // using some extra padding for early decision making
+        let safetyPadding: CGFloat = 10
+        let leadingEdgeOfRightmostLabel = rightmostLabel!.frame.minX-safetyPadding
+        let trailingEdgeOfLeftmostLabel = leftmostLabel!.frame.maxX+safetyPadding
+        
+        
+        if (isMovingRightToLeft) {
+            
+            if (contentOffset.x > trailingEdgeOfLeftmostLabel) {
+                print ("Relocate \(leftmostLabel!.text) to right")
+                
+                leftBoundary = Int(leftmostLabel!.frame.maxX)
+                
+                var frame = leftmostLabel!.frame
+                frame.origin.x = CGFloat(rightBoundary)
+                leftmostLabel!.frame = frame
+                
+                rightBoundary = Int(frame.maxX)
+                
+                let firstLabel = tabLabels?.first
+                tabLabels = Array(tabLabels!.dropFirst())
+                tabLabels?.append(firstLabel!)
+                
+                print("leftBoundary = \(leftBoundary), rightBoundary = \(rightBoundary), view = \(leftmostLabel)")
+            }
+            
+        } else {
+            
+            if (contentOffset.x+screenWidth < leadingEdgeOfRightmostLabel) {
+                print ("Relocate \(rightmostLabel!.text) to left")
+                
+                rightBoundary = Int(rightmostLabel!.frame.minX)
+                
+                var frame = rightmostLabel!.frame
+                frame.origin.x = CGFloat(leftBoundary - Int(rightmostLabel!.frame.size.width))
+                rightmostLabel!.frame = frame
+                
+                leftBoundary = Int(frame.minX)
+                
+                let lastLabel = tabLabels?.last
+                tabLabels = Array(tabLabels!.dropLast())
+                tabLabels?.insert(lastLabel!, at: 0)
+                
+                print("leftBoundary = \(leftBoundary), rightBoundary = \(rightBoundary), view = \(rightmostLabel)")
+            }
+        }
+        
+        leftmostLabel = tabLabels?.first
+        rightmostLabel = tabLabels?.last
+        
+        assert(totalWidthForAllTabs == rightBoundary-leftBoundary)
+        
+        guard let selectedView = bottomContainer?.viewWithTag(tagAddition+currentTabIndex) else {
+            return
+        }
+        
+        highlightView?.frame = selectedView.frame
+        self.clipView(view: highlightView!)
+        
+        self.adjustTopContainerOffsetAccordingToHighlightView()
+    }
+    
+    
+    private func adjustTopContainerOffsetAccordingToHighlightView() {
+        
+        var hightlightViewOffset: CGFloat = (highlightView?.frame.minX)!
+        
+        if (hightlightViewOffset >= CGFloat(initialOffset)) {
+            hightlightViewOffset -= CGFloat(initialOffset)
+            hightlightViewOffset = hightlightViewOffset.truncatingRemainder(dividingBy: CGFloat(totalWidthForAllTabs))
+        }
+        else {
+            hightlightViewOffset = CGFloat(initialOffset)-hightlightViewOffset
+            hightlightViewOffset = hightlightViewOffset.truncatingRemainder(dividingBy: CGFloat(totalWidthForAllTabs))
+            
+            if (hightlightViewOffset > 0) {
+                hightlightViewOffset = CGFloat(totalWidthForAllTabs)-hightlightViewOffset
+            }
+        }
+        
+        let topPoint = CGPoint(x:hightlightViewOffset, y:0)
+        topContainer?.setContentOffset(topPoint, animated: false)
+    }
 }
